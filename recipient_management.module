@@ -1,0 +1,1523 @@
+<?php
+/**
+ * Implementation of hook_menu()
+ */
+function recipient_management_menu() {
+  $items = array();
+
+  $items['recipient_management/page'] = array(
+    'access callback' => TRUE,
+    'page arguments' => array(1),
+    'weight' => 1,
+    'page callback' => 'recipient_management_page',
+
+  );
+
+  $items['login-register/%ctools_js'] = array(
+    'page callback' => 'recipient_management_callback',
+    'page arguments' => array(1),
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+
+  $items["recipient_management"] = array(
+    'title' => 'Recipient Management',
+    'options' => array('attributes' => array('class' => array('active overview'))),
+    'page callback' => 'recipient_management_page_callback',
+    'page arguments' => array(1),
+    'weight' => 1,
+    'access arguments' => array('administer recipient_details_page'),
+  );
+  $items['recipient/%'] = array(
+    'title' => 'Recipient Info',
+    'page callback' => 'recipient_details_callback',
+    'page arguments' => array(1),
+    'access arguments' => array('administer recipient_details_page'),
+  );
+  $items['recipient_management/add_user/%ctools_js/%'] = array(
+    'page callback' => 'create_user_callback',
+    'page arguments' => array(1),
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+  return $items;
+}
+
+ /**
+ * Recipient management page
+ */
+ function recipient_management_page() {
+    // Load the modal library and add the modal javascript.
+  ctools_include('modal');
+  ctools_modal_add_js();
+  return _recipient_management_make_link('User Registration Modal');
+} 
+ /**
+ * Recipient management page
+ */
+ function recipient_management_preprocess_page(&$variables)  {
+  // load ctools modal and js only if user not logged in
+  if (!user_is_logged_in()) {
+  // Load the modal library and add the modal javascript.
+    ctools_include('modal');
+    ctools_modal_add_js();
+  }
+}
+
+ /**
+ * Helper function to make a link.
+ */
+ function _recipient_management_make_link($link_text = '') {
+  // Set a default value if no text in supplied.
+  if(empty($link_text)) {
+    $link_text = 'User Registration Modal';
+  }
+
+  return '<div id="user-registration-modal-link">' . l($link_text, 'login-register/nojs', array('attributes' => array('class' => 'ctools-use-modal'))) . '</div>';
+}
+
+ /**
+ * Ajax menu callback.
+ */
+ function recipient_management_callback($ajax) {
+   drupal_add_css(drupal_get_path('module', 'recipient_management') .'/css/custom.css');
+
+   if($ajax) {
+    ctools_include('ajax');
+    ctools_include('modal');
+
+    $form_state = array(
+      'ajax' => TRUE,
+      'title' => t('User Registration Form'),
+    );
+
+    // Use ctools to generate ajax instructions for the browser to create
+    // a form in a modal popup.
+    $webForm = "<div class='form-wrappers'>";
+    $webForm .= drupal_render(drupal_get_form("user_login_block_custom"));
+    $webForm .= drupal_render(drupal_get_form('recipient_management_form'));
+    $webForm .= "</div>";
+  // Forming the webform HTML structure.
+
+    $output = array();
+ //Outputting the webform in the popup.
+    $output[] = ctools_modal_command_display(t('User Login/Registration Form'), $webForm);
+
+    // If the form has been submitted, there may be additional instructions
+    // such as dismissing the modal popup.
+    if(!empty($form_state['ajax_commands'])) {
+      $output = $form_state['ajax_commands'];
+    }
+
+    // Return the ajax instructions to the browser via ajax_render().
+    print ajax_render($output);
+    drupal_exit();
+  } else {
+    return drupal_get_form('recipient_management_form');
+  }
+}
+
+function recipient_management_form($form, &$form_state) {
+// If $form_state['step'] is not set then set default to 1
+  $form_state['step'] = isset($form_state['step']) ? $form_state['step'] : 1;
+// Add a wrapper div to update the form using AJAX
+
+  $form['#prefix'] = '<div id="recipient_management_form"><div id="school_details"></div>';
+  $form['#suffix'] = '</div>';
+
+  $form['register_form'] = array(
+    '#type' => 'fieldset',
+    '#title' => t(''),
+    '#collapsible' => false,
+    '#collapsed' => false,
+  );
+
+  $form['register_form']['title'] = array(
+    '#markup' => '<h1>Register</h1>',
+  );
+
+  switch($form_state['step']) {
+  // Step 1
+    case 1:
+    $award_year = $overall_rank = '';
+    if(isset($form_state['values']['step_1'])) {
+      $award_year = $form_state['values']['step_1']['award_year'];
+      $overall_rank = $form_state['values']['step_1']['overall_rank'];
+    } elseif(isset($form_state['storage']['step_1']))  {
+      $award_year = $form_state['storage']['step_1']['award_year'];
+      $overall_rank = $form_state['storage']['step_1']['overall_rank'];
+    }
+
+    $query = db_select('YGS_Recipients_Ranks', 'v');
+    $query->fields('v',array('YEAR'));
+    $query->groupBy('YEAR');
+    $results = $query->execute()->fetchAll();
+
+    $arr = array(
+      '' => 'Select Year'
+    );
+    foreach ($results as $key => $value) {
+      $arr[$value->YEAR] = t($value->YEAR);
+    }
+
+    $form['register_form']['step_1']['award_year'] = array(
+      '#type'=>'select',
+      '#required' => true,
+      '#title'=>t('Award Year'),
+      '#default_value' => $award_year,
+      '#options' => $arr,
+    );
+    $form['register_form']['step_1']['overall_rank'] = array(
+     '#type' => 'textfield',
+     '#attributes' => array(
+      ' type' => 'number',
+      'min'   => '1',
+      'class' => array(
+        'overall-rank'
+      ),
+    ),
+     '#required' => true,
+     '#title'=>t('Overall Rank'),
+     '#default_value' => $overall_rank,
+   );
+    break;
+// Step 2
+    case 2:
+
+    $email = '';
+    if(isset($form_state['values']['step_2'])) {
+      $email = $form_state['values']['step_2']['email'];
+    } elseif(isset($form_state['storage']['step_2'])) {
+      $email = $form_state['storage']['step_2']['email'];
+    }
+
+    $form['register_form']['step_2']['email'] = array(
+      '#type'=>'textfield',
+      '#required' => true,
+      '#title'=>t('Email Address'),
+      '#default_value' => $email,
+    );   
+    $form['register_form']['step_2']['password'] = array(
+      '#type'=>'password',
+      '#required' => true,
+      '#title'=>t('Password'),
+      '#default_value' => $phone_default_value,
+    );  
+    $form['register_form']['step_2']['confirm_password'] = array(
+      '#type'=>'password',
+      '#required' => true,
+      '#title'=>t('Confirm Password'),
+      '#default_value' => $phone_default_value,
+    );
+    break;
+  }
+
+// Form Buttons
+  $form['register_form']['buttons'] = array(
+    '#type' => 'container',
+  );
+// If we are on step 1, we do not want a back button
+  if($form_state['step'] !== 1) {
+    $award_year =  $form_state['storage']['step_1']['award_year'];
+    $overall_rank = $form_state['storage']['step_1']['overall_rank'];
+
+    $query = db_select('YGS_Recipients_Ranks', 'v');
+    $query->fields('v',array('SCHOOL'));
+    $query->condition('YEAR', ($award_year), '=');
+    $query->condition('OVERALL_RANK', ($overall_rank), '=');
+    $result = $query->execute()->fetch();
+    $school_name = ($result)?$result->SCHOOL:'';
+
+    $html = "<div>";
+    $school_and_rank = '<div id="school-name">School Name:'.$school_name.'</div>';
+    $school_and_rank .= '<div id="overall-rank">Overalll Rank:'.$overall_rank.'</div>';
+    $html .= "<script>jQuery('#edit-login-form').html('".$school_and_rank."');jQuery('#school_details').html('".$school_and_rank."');</script>";
+
+    $html .= "</div>";
+    $form['register_form']['buttons']['back'] = array(
+      '#type' => 'submit',
+      '#value' => t('Change School'),
+      '#prefix' => $html,
+      '#limit_validation_errors' => array(),
+      '#submit' => array('recipient_management_form_back_submit'),
+      '#ajax' => array(
+        'wrapper' => 'recipient_management_form',
+        'callback' => 'recipient_management_form_ajax_callback',
+      ),
+    );
+  }
+
+  if($form_state['step'] !== 2) {
+    $form['register_form']['buttons']['next'] = array
+    (
+      '#type' => 'submit',
+      '#value' => t('Next'),
+      '#ajax' => array
+      (
+        'wrapper' => 'recipient_management_form',
+        'callback' => 'recipient_management_form_ajax_callback',
+      ),
+    );
+  } else {
+    $form['register_form']['buttons']['submit'] = array
+    (
+      '#type' => 'submit',
+      '#value' => t('Submit'),
+      '#ajax' => array
+      (
+        'wrapper' => 'recipient_management_form',
+        'callback' => 'recipient_management_form_ajax_callback',
+      ),
+    );
+  }
+  return $form;
+}
+
+/**
+ * Validate the form
+ */
+function recipient_management_form_validate($form, &$form_state) {
+  switch($form_state['step']) {
+    case "1": 
+    $overall_rank = $form_state['values']['overall_rank'];
+    $award_year = $form_state['values']['award_year'];
+    $query = db_select('YGS_Recipients_Ranks', 'v');
+    $query->fields('v',array('Recipient_ID'));
+    $query->condition('OVERALL_RANK', ($overall_rank), '=');
+    $query->condition('YEAR', ($award_year), '=');
+    $result = $query->execute()->fetch();
+    if(!$result) {
+     form_set_error('overall_rank', t('The overall rank does not match the records.'));
+   }
+   break;
+
+   case "2":
+   $email = $form_state['values']['email'];
+   $password = $form_state['values']['password'];
+   $confirm_password = $form_state['values']['confirm_password'];
+   if(!valid_email_address($email)) {
+     form_set_error('email', t('The email address appears to be invalid.'));
+   } else if($password != $confirm_password) {
+    form_set_error('password', t('Your passwords do not match. Please type carefully.'));
+  } else {
+    $user = user_load_by_mail($email);
+    if($user){
+      form_set_error('email', t('The email !email already exists.', array('!email' => $email)));
+    }
+  }
+  break;
+}
+}
+
+/**
+ * form submission handler
+ * @param  [type] $form        [description]
+ * @param  [type] &$form_state [description]
+ * @return [type]              [description]
+ */
+function recipient_management_form_submit($form, &$form_state) {
+  $step = $form_state['step'];
+
+  if($form_state['step'] == 1) {
+    $form_state['storage']['step_' . $step]['award_year'] = $form_state['values']['award_year'];
+    $form_state['storage']['step_' . $step]['overall_rank'] = $form_state['values']['overall_rank'];
+
+  }
+  if($form_state['step'] == 2) {
+    $form_state['storage']['step_' . $step]['email'] = $form_state['values']['email'];
+  }
+
+  if(isset($form_state['values']['next']) && $form_state['values']['op'] == $form_state['values']['next']) {
+// Goto next step
+    $form_state['step']++;
+  }
+
+  if(isset($form_state['values']['back']) && $form_state['values']['op'] == $form_state['values']['back']) {
+// Goto next step
+    $form_state['step']--;
+  }
+// Check if it is last step
+  elseif(isset($form_state['values']['submit']) && $form_state['values']['op'] == $form_state['values']['submit']) {
+    // create the new user
+    $email = $form_state['storage']['step_2']['email'];
+    $award_year = $form_state['storage']['step_1']['award_year'];
+    $overall_rank =  $form_state['storage']['step_1']['overall_rank'];
+    $password = $form_state['values']['password'];
+    $new_user = array(
+      'name' => $email,
+      'pass' => $password,
+      'mail' => $email,
+      'status' => 1,
+      'init' => $email,
+      'roles' => array(
+        DRUPAL_AUTHENTICATED_RID => 'authenticated user'
+      ),
+    );
+
+    // The first parameter is sent blank so a new user is created.
+    $account = user_save(NULL, $new_user);
+    $user_id = $account->uid;
+
+    drupal_set_message(t('You have successfully registered and logged in with !email.', array('!email' => $email)));
+
+    $username = "";
+    $query = db_select('YGS_Recipients_Ranks', 'v');
+    $query->fields('v',array('Recipient_ID'));
+    $query->condition('YEAR', ($award_year), '=');
+    $query->condition('OVERALL_RANK', ($overall_rank), '=');
+    $result = $query->execute()->fetch();
+    $recipient_id = ($result)?$result->Recipient_ID:'0';
+
+    $nid = db_insert('YGS_Recipients_Users')
+    ->fields(array('USERID', 'NAME', 'EMAIL', 'Recipient_ID'))
+    ->values(array(
+      'USERID' => $user_id,
+      'NAME' => $username,
+      'EMAIL' => $email,
+      'Recipient_ID' => $recipient_id,
+    ))
+    ->execute();
+
+// The first parameter is sent blank so a new user is created.
+
+    $form_state['step'] = 1;
+    $form_state['storage'] = array();
+
+    $form_state_data = array();
+    $form_state_data['uid'] = $user_id;      
+    user_login_submit(array(), $form_state_data);
+
+    $path = 'user/'.$user_id;
+    ctools_include('ajax');
+    ctools_add_js('ajax-responder');
+    $commands[] = ctools_ajax_command_redirect($path);
+    print ajax_render($commands);
+    exit;
+  }
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ * ajax call back function
+ * @param  [type] $form        [description]
+ * @param  [type] &$form_state [description]
+ * @return [type]              [description]
+ */
+function recipient_management_form_ajax_callback($form, &$form_state) {
+  return $form;
+}
+
+/**
+ * recipient_management_form submit handler
+ * @param  [type] $form        [description]
+ * @param  [type] &$form_state [description]
+ * @return [type]              [description]
+ */
+function recipient_management_form_back_submit($form, &$form_state) {
+  $form_state['step']--;
+
+  // Because this is a multi-step form, we always need to rebuild the form
+  // on every step, even after submission. This allows our form to be completely
+  // Ajaxified without ever requiring a page load.
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ *  Page Callback
+ */
+function recipient_management_page_callback() {
+ // configure the table header columns
+  $header = array(
+    array('data' => 'Name','field' => 'SCHOOL', 'sort' => 'desc'),
+    array('data' => 'Overalll Rank','field' => 'OVERALL_RANK', 'sort' => 'desc'),
+    array('data' => 'Year','field' => 'YEAR', 'sort' => 'desc'),
+    array('data' => ''),
+  );
+
+  // set the database table and initial SelectQuery options
+  // $select is a SelectQuery object.
+  // @see http://api.drupal.org/api/drupal/includes--database--select.inc/class/SelectQuery
+  $select = db_select('YGS_Recipients_Ranks', 'p')
+  ->extend('PagerDefault')
+  ->extend('TableSort');
+
+  $params = drupal_get_query_parameters();
+  $name = (isset($params['name']))?$params['name']:'';
+  $rank = (isset($params['rank']))?$params['rank']:'';
+  $year = (isset($params['year']))?$params['year']:'';
+
+  $filter_keys = array(
+    'name' => 'SCHOOL',
+    'rank' => 'OVERALL_RANK',
+    'year' => 'YEAR'
+  );
+
+  foreach ($filter_keys as $key => $field_name) {
+    if(trim($$key) != '') {
+      $search_phrase = ($field_name =='SCHOOL')?'%'.$$key.'%':$$key;
+      $operator = ($field_name =='SCHOOL')?'Like':'=';
+      $select->condition($field_name, $search_phrase, $operator);
+    }
+  }
+
+  // get the desired fields
+  // orderByHeader is a TableSort method (http://api.drupal.org/api/drupal/includes--tablesort.inc/function/TableSort%3A%3AorderByHeader/7)
+  $select->fields('p', array('Recipient_ID','SCHOOL','OVERALL_RANK','YEAR'))
+  ->limit(10)
+  ->orderByHeader($header)
+  ->orderBy('Recipient_ID', 'DESC');  
+  // TODO this call seems to be losing to orderByHeader on page load
+
+  // execute the query
+  $results = $select->execute();
+
+  // configure the table rows, making the first column a link to our 'edit' page
+  $rows = array();
+  foreach ($results as $row) {
+    $rows[] = array(
+      $row->SCHOOL,
+      $row->OVERALL_RANK,
+      $row->YEAR,
+      l(t('Select'),
+       'recipient/'. $row->Recipient_ID,
+       array(
+        'attributes' => array(
+          'class' => array('select-recipient'), 
+          'title' => 'View Details', 
+        ), 
+        'html' => TRUE,
+      )
+     )
+    );
+  }
+
+  $output = theme(
+    'table', array(
+      'header' => $header,
+      'rows' => $rows 
+    )
+  );
+
+  // add the pager
+  $output .= theme('pager');
+
+  $render_array = [];
+
+  $render_array['form'] = drupal_get_form('recipient_filter_form');
+
+  $vars['header'] = $header;
+  $vars['empty'] = 'Empty List - No Entries';
+  $vars['rows'] = $rows;
+  $render_array['table'] = array(
+    '#theme' => 'table',
+    '#rows' => $rows,
+    '#empty' => 'Empty List - No Entries',
+    '#header' => $header,
+  );
+
+  $render_array['pager'] = array(
+    '#theme' => 'pager',
+  );
+
+  return $render_array;
+}
+
+/**
+ * [recipient_filter_form description]
+ * @param  [type] $form        [description]
+ * @param  [type] &$form_state [description]
+ * @return [type]              [description]
+ */
+function recipient_filter_form($form, &$form_state){
+  $header = array(t('id'), t('name'), t('firstname'));
+  $rows = Null;
+
+  $params = drupal_get_query_parameters();
+  $params = drupal_get_query_parameters();
+  $name = (isset($params['name']))?$params['name']:'';
+  $rank = (isset($params['rank']))?$params['rank']:'';
+  $year = (isset($params['year']))?$params['year']:'';
+  $form['form'] = [
+    '#type'  => 'form',
+  ];
+  $form['form']['filters']['title'] = array(
+    '#markup' => '<h1>Filter By</h1>',
+  );
+
+  $form['form']['filters']['name'] = 
+  array('#type' => 'textfield',
+    '#name' => 'name',
+    '#title' => t('Name'),
+    '#maxlength' => USERNAME_MAX_LENGTH,
+    '#size' => 15,
+    '#required' => FALSE,
+    '#theme_wrappers' => array(),
+    '#prefix' => ' <span class="filter-name">'.t('Name').' ',
+    '#suffix' => '</span>',
+    '#value' => $name
+  );
+
+  $form['form']['filters']['rank'] = array(
+    '#type' => 'textfield',
+    '#name' => 'rank',
+    '#title' => t('Rank'),
+    '#size' => 15,
+    '#required' => FALSE,
+    '#theme_wrappers' => array(),
+    '#prefix' => ' <span class="filter-rank">'.t('Rank').' ',
+    '#suffix' => '</span>',
+    '#value' => $rank
+  );
+
+  $form['form']['filters']['year'] = array(
+    '#type' => 'textfield',
+    '#name' => 'year',
+    '#title' => t('Year'),
+    '#size' => 15,
+    '#required' => FALSE,
+    '#theme_wrappers' => array(),
+    '#prefix' => ' <span class="filter-year">'.t('Year').' ',
+    '#suffix' => '</span>',
+    '#value' => $year        
+  );
+
+  $form['form']['filters']['actions'] = [
+    '#type'       => 'actions',
+    '#theme_wrappers' => array(),
+    '#prefix' => ' <span class="filter-actions"> ',
+    '#suffix' => '</span>'
+
+  ];
+
+  $form['form']['filters']['actions']['submit'] = [
+    '#type'  => 'submit',
+    '#value' => t('Apply Filter')
+  ];
+  $form['form']['filters']['actions']['reset'] = [
+    '#type'  => 'submit',
+    '#value' => t('Clear Filter'),
+    '#attributes' => array('onclick' => 'this.form.reset();'),
+
+  ];
+
+  return $form;
+}
+
+    /**
+     * [recipient_filter_form_submit description]
+     * @param  [type] $form        [description]
+     * @param  [type] &$form_state [description]
+     * @return [type]              [description]
+     */
+    function recipient_filter_form_submit($form, &$form_state){
+      $current_url = url(current_path(), array('absolute' => TRUE));
+      $params = array();
+      $params = drupal_get_query_parameters();
+      if(isset($form_state['input']['op']) && $form_state['input']['op'] == "Clear Filter") {
+       unset($params['name']);
+       unset($params['rank']);
+       unset($params['year']);
+     } else {
+      $filter_keys = array('name','rank','year');
+      foreach ($filter_keys as $value) {
+        if(trim($form_state['input'][$value]) != '') {
+          $params[$value] = trim($form_state['input'][$value]);
+        } else {
+          unset($params[$value]);
+        }
+      }
+    }
+
+    $form_state['redirect'] = array(
+    // $path
+      $current_url,
+    // $options
+      array('query' => $params),
+    // $http_response_code
+      302,
+    );
+  }
+
+  /**
+   * recipient_details_callback call back 
+   */
+
+  function recipient_details_callback($recipient_id){
+    $exists = db_query('SELECT 1 FROM {YGS_Recipients_Info} WHERE Recipient_ID = :recipient_id', array(':recipient_id' => $recipient_id))->fetchField();
+    if($exists) {
+      $ajax_url = base_path().'ajax';
+      drupal_add_js(array('recipient_management' => array('ajax_url' => $ajax_url)), array('type' => 'setting'));
+      drupal_add_css(drupal_get_path('module', 'recipient_management') .'/css/custom.css');
+      drupal_add_js(drupal_get_path('module', 'recipient_management') . '/js/custom.js');
+
+      ctools_include('modal');
+      ctools_modal_add_js();
+
+      $temp_form = drupal_get_form("recipient_management_details", $recipient_id);
+      $html = drupal_render($temp_form);
+
+      $query = db_select('YGS_Recipients_Ranks', 'v');
+      $query->fields('v',array('YEAR','OVERALL_RANK','Public_Rank','Private_Rank','Magnet_Rank','Charter_Rank','City_Rank','State_Rank','Recipient_ID'));
+      $query->condition('Recipient_ID', ($recipient_id), '=');
+      $recipients_ranks_array = $query->execute()->fetchAll();
+
+      $recipients_ranks_data = array();
+      if(!empty($recipients_ranks_array)) {
+        $i = 0;
+        $rank_types = array(
+          'OVERALL_RANK' => 'Overall',
+          'Public_Rank' => 'Public',
+          'Private_Rank' => 'Private',
+          'Magnet_Rank' => 'Magnet',
+          'Charter_Rank' => 'Charter',
+          'City_Rank' => 'City',
+          'State_Rank' => 'State'
+        );
+
+        $i = 0;
+        foreach ($recipients_ranks_array as $key => $node) {
+          foreach ($rank_types as $rank_key => $rank_type) {
+            $recipients_ranks_data[$i]['YEAR'] = $node->YEAR; 
+            $recipients_ranks_data[$i]['rank_type'] = $rank_type; 
+            $recipients_ranks_data[$i]['value'] = $node->$rank_key;
+            $i++;
+          }
+        }
+      }
+
+      $recipients_ranks_header = array(
+        array('data' => 'Year'),
+        array('data' => 'Rank Type'),
+        array('data' => 'Rank'),
+      );
+
+      $recipients_ranks_rows = array();
+      if(!empty($recipients_ranks_data)) {
+        foreach ($recipients_ranks_data as $node) {
+          $recipients_ranks_rows[] = array(
+            'data' => array(
+              $node['YEAR'],
+              $node['rank_type'],
+              $node['value'],
+            )
+          );
+        }
+      }
+
+      $html .= theme('table',
+        array(
+          'header' => $recipients_ranks_header,
+          'rows'=>$recipients_ranks_rows,
+          'sticky' => TRUE, 
+          'empty' => 'Empty List - No Entries',
+        )
+      );
+
+      $html .= theme('pager',
+        array(
+          'tags' => array(),
+        )
+      );
+
+      $header = array(
+        array('data' => 'Email'),
+        array('data' => 'Last Login'),
+        array('data' => 'Masquerade'),
+      );
+
+      $query = db_select('YGS_Recipients_Users', 'v');
+      $query->join('users', 'u', 'u.uid = v.USERID');
+      $results = $query
+      ->fields('v',array('USERID','EMAIL','Recipient_ID'))
+      ->fields('u', array('login'));
+      $current_user_info = current_user_info();
+      if(!$current_user_info['has_access']) {
+        $results = $results->condition('v.USERID', $current_user_info['uid']);
+      }
+      $results = $results->condition('v.Recipient_ID', $recipient_id)
+      ->execute()->fetchAll();
+
+      $rows = array();
+      if(!empty($results)) {
+        foreach ($results as $node) {
+          $rows[] = array(
+            'data' => array(
+              $node->EMAIL,
+              ($node->login >0)?format_date($node->login, 'custom', 'm/d/y'):'',
+              $node->USERID
+            )
+          );
+        }
+      }
+
+      $html .= '<h1>Users</h1>';
+
+      $html .= theme('table',
+        array(
+          'header' => $header,
+          'rows'=>$rows,
+          'sticky' => TRUE, 
+          'empty' => 'Empty List - No Entries
+          ',
+        )
+      );
+      if($current_user_info['has_access']) {
+        $html .= '<a href="'.base_path().'recipient_management/add_user/nojs/'.$recipient_id.'" class="ctools-use-modal"><input type="button" class="form-submit" value="Add User"></a>';
+      }
+
+      $html .= theme('pager',
+        array(
+          'tags' => array(),
+        )
+      );
+      $commerce_line_item_query = db_select('commerce_line_item', 'li')
+      ->extend('PagerDefault')
+      ->extend('TableSort');
+
+      $commerce_line_item_query->join('field_data_commerce_product', 'p', 'p.entity_id = li.line_item_id');
+      $commerce_line_item_query->join('field_data_commerce_price', 'cp', 'cp.entity_id = p.commerce_product_product_id');
+      $commerce_line_item_query->join('commerce_order', 'co', 'co.order_id = li.order_id');
+
+
+      $recipients_users_query = db_select('YGS_Recipients_Users', 'v');
+      $recipients_users_ids = $recipients_users_query
+      ->fields('v',array('USERID'))
+      ->condition('v.Recipient_ID', $recipient_id);
+
+      $recipients_users_ids = $recipients_users_ids->execute()->fetchCol();
+      $recipients_users_ids = ($recipients_users_ids)?$recipients_users_ids:array();
+
+      if(!empty($recipients_users_ids)) {
+        $commerce_line_item_results = $commerce_line_item_query
+        ->fields('cp', array())
+        ->fields('p', array())
+        ->fields('co', array())
+        ->condition('co.uid', ($recipients_users_ids), 'IN');
+        if(!$current_user_info['has_access']) {
+          $commerce_line_item_results = $commerce_line_item_results->condition('co.uid', $current_user_info['uid']);
+        }
+        $commerce_line_item_results = $commerce_line_item_results->limit(10)
+        ->execute()->fetchAll();
+      } else {
+        $commerce_line_item_results = array();
+      }
+
+      $commerce_line_item_header = array(
+        array('data' => 'Date'),
+        array('data' => 'User'),
+        array('data' => 'Amount'),
+        array('data' => ''),
+      );
+
+      $commerce_line_item_row = array();
+      if(!empty($commerce_line_item_results)) {
+        foreach ($commerce_line_item_results as $node) {
+          $commerce_line_item_row[] = array(
+            'data' => array(
+              ($node->created >0)?format_date($node->created, 'custom', 'm/d/y'):'',
+              $node->mail,
+              $node->commerce_price_currency_code.' '. $node->commerce_price_amount,
+              l('View', 'order/'.$node->order_id, array('attributes' => array('class' => 'view-order'))),
+            )
+          );
+        }
+      }
+
+      $render_array['table'] = array(
+        '#theme' => 'table',
+        '#rows' => $commerce_line_item_row,
+        '#empty' => 'Empty List - No Entries',
+        '#header' => $commerce_line_item_header,
+      );
+
+      $render_array['pager'] = array(
+        '#theme' => 'pager',
+      );
+
+      $html .= drupal_render($render_array);
+
+      return $html;
+    } else {
+      $html = 'Records Not found.';
+      return $html;
+    }
+  }
+
+/**
+ * [user_login_block_custom description]
+ * @param  [type] $form    [description]
+ * @param  [type] &$fstate [description]
+ * @return [type]          [description]
+ */
+function user_login_block_custom($form, &$fstate) {
+  $form = array(
+    '#action' => url($_GET['q'], array('query' => drupal_get_destination())),
+    '#id' => 'user-login-form',
+    '#submit' => array('user_login_block_custom_submit'),
+  );
+
+  $form['#prefix'] = '<div id="custom_login_form">';
+  $form['#suffix'] = '</div>';
+
+  $form['wrapper'] = [
+    '#markup' => '<div id="login-error-message"></div>',
+  ];
+
+  $form['login_form'] = array(
+    '#type' => 'fieldset',
+    '#title' => t(''),
+    '#collapsible' => false,
+    '#collapsed' => false,
+  );
+
+  $form['login_form']['title'] = array(
+    '#markup' => '<h1>Login</h1>',
+  );
+
+  $form['login_form']['name'] = array('#type' => 'textfield',
+    '#title' => t('Email address'),
+    '#maxlength' => USERNAME_MAX_LENGTH,
+    '#size' => 15,
+    '#required' => TRUE,
+  );
+  $form['login_form']['pass'] = array('#type' => 'password',
+    '#title' => t('Password'),
+    '#maxlength' => 60,
+    '#size' => 15,
+    '#required' => TRUE,
+  );
+  $form['login_form']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Log in'),
+    '#ajax'  => [
+      'callback' => 'login_form_callback',
+      'wrapper'  => 'login-error-message',
+      'effect'   => 'fade',
+    ],
+  );
+  $link = url(drupal_get_path_alias('user/password'));
+  $form['login_form']['login_form']['forgot_password'] = array(
+    '#markup' => '<a href="'.$link.'" title="Request new password via e-mail."><input type="button" value="Forgot Password"/></a>',
+    '#weight' => 100
+  );
+  return $form;
+}
+
+/**
+ * [login_form_callback description]
+ * @param  [type] $form    [description]
+ * @param  [type] &$fstate [description]
+ * @return [type]          [description]
+ */
+function login_form_callback($form, &$fstate) {
+  return '<div id="login-error-message"></div>';
+}
+
+/**
+ * Custom validation handler for the form login.
+ *
+ * @param $form
+ * @param $form_state
+ * @return bool
+ */
+function user_login_block_custom_validate($form, &$form_state) {
+  $email = $form_state['values']['name'];
+  $password = $form_state['values']['password'];
+  $confirm_password = $form_state['values']['confirm_password'];
+  if(!valid_email_address($email)) {
+   form_set_error('name', t('The email address appears to be invalid.'));
+ } 
+}
+
+
+/**
+ * [user_login_block_custom_submit description]
+ * @param  [type] $form        [description]
+ * @param  [type] &$form_state [description]
+ * @return [type]              [description]
+ */
+function user_login_block_custom_submit($form, &$form_state){
+  $mail = $form_state['values']['name'];
+  $user = user_load_by_mail($mail);
+  if($user && user_authenticate($user->name, $form_state['values']['pass'])) {
+   $user_obj = user_load_by_name($user->name);
+   $form_state['uid'] = $user_obj->uid;      
+   user_login_submit($form,$form_state);
+   $path = 'user/'.$user->uid;
+   ctools_include('ajax');
+   ctools_add_js('ajax-responder');
+   $commands[] = ctools_ajax_command_redirect($path);
+   print ajax_render($commands);
+   exit;
+ } else {
+   form_set_error('name', t('Sorry, unrecognized username or password.')); 
+ }
+}
+
+/**
+ * Callback function for Popup page.
+ */
+
+function create_user_callback($ajax) {
+  if($ajax) {
+    ctools_include('ajax');
+    ctools_include('modal');
+
+    $form_state = array(
+      'ajax' => TRUE,
+      'title' => t('Create New User Form'),
+    );
+
+    // Use ctools to generate ajax instructions for the browser to create
+    // a form in a modal popup.
+    // $output = ctools_modal_form_wrapper('recipient_management_form', $form_state);
+
+    $referer_page = $_SERVER['HTTP_REFERER'];
+
+    $webForm = "<div class='form-wrappers'>";
+    $webForm .= drupal_render(drupal_get_form("create_user_form", $referer_page));
+    $webForm .= "</div>";
+  // Forming the webform HTML structure.
+
+
+    $output = array();
+ //Outputting the webform in the popup.
+    $output[] = ctools_modal_command_display(t('Add New User'), $webForm);
+
+    // If the form has been submitted, there may be additional instructions
+    // such as dismissing the modal popup.
+    if(!empty($form_state['ajax_commands'])) {
+      $output = $form_state['ajax_commands'];
+    }
+
+    // Return the ajax instructions to the browser via ajax_render().
+    print ajax_render($output);
+    drupal_exit();
+  } else {
+    return drupal_get_form('create_user_form');
+  }
+}
+
+/**
+ * [create_user_form description]
+ * @param  [type] $form         [description]
+ * @param  [type] &$fstate      [description]
+ * @param  [type] $referer_page [description]
+ * @return [type]               [description]
+ */
+function create_user_form($form, &$fstate, $referer_page) { 
+ $path_uri = explode('ajax/', request_uri());
+ $recipient_id = $path_uri[1];
+
+ $form = array(
+  '#id' => 'create-user-form',
+);
+
+ $form['#attributes'] = array('autocomplete' => 'off');
+ $form['#prefix'] = '<div id="custom_login_form">';
+ $form['#suffix'] = '</div>';
+
+ $form['wrapper'] = [
+  '#markup' => '<div id="create-user-error"></div>',
+];
+
+$form['create_user_form'] = array(
+  '#type' => 'fieldset',
+  '#title' => t(''),
+  '#collapsible' => false,
+  '#collapsed' => false,
+);
+
+$form['create_user_form']['title'] = array(
+  '#markup' => '<h1>User Details</h1>',
+);
+
+$form['create_user_form']['name'] = array(
+  '#title' => 'username',
+  '#description' => 'choose a username',
+  '#type' => 'textfield',
+  '#required' => TRUE,
+);
+$form['create_user_form']['mail'] = array(
+  '#title' => 'email',
+  '#description' => 'enter a valid email address',
+  '#type' => 'textfield',
+  '#required' => TRUE,
+);
+
+$form['create_user_form']['password'] = array(
+  '#title' => 'Password',
+  '#type' => 'password',
+  '#required' => TRUE,
+);
+$form['create_user_form']['recipient_id'] = array(
+  '#type' => 'hidden',
+  '#default_value' => $recipient_id,
+  '#required' => TRUE,
+);
+$form['create_user_form']['submit'] = array(
+  '#type' => 'submit',
+  '#value' => t('Save'),
+  '#ajax'  => [
+    'callback' => 'create_user_submit_callback',
+    'wrapper'  => 'create-user-error',
+    'effect'   => 'fade',
+  ],
+);
+$form['#referer_page'] = $referer_page;
+return $form;
+}
+
+/**
+ * [create_user_form_submit description]
+ * @param  [type] $form        [description]
+ * @param  [type] &$form_state [description]
+ * @return [type]              [description]
+ */
+function create_user_form_submit($form, &$form_state){
+  $new_user = array(
+    'name' => $form_state['values']['name'],
+    'pass' => $form_state['values']['password'], 
+    'mail' => $form_state['values']['mail'],
+    'status' => 1,
+    'init' => $form_state['values']['mail'],
+    'roles' => array(
+      DRUPAL_AUTHENTICATED_RID => 'authenticated user'
+    ),
+  );
+
+// The first parameter is sent blank so a new user is created.
+  $user = user_save(NULL, $new_user);
+  $user_id = $user->uid;
+  $referer_page = $form['#referer_page'];
+
+  $recipient_id =  $form_state['values']['recipient_id'];
+  $nid = db_insert('YGS_Recipients_Users')
+  ->fields(array('USERID', 'NAME', 'EMAIL', 'Recipient_ID'))
+  ->values(array(
+    'USERID' => $user_id,
+    'NAME' => $form_state['values']['name'],
+    'EMAIL' => $form_state['values']['mail'],
+    'Recipient_ID' => $recipient_id,
+  ))
+  ->execute();
+
+  $form_state['rebuild'] = TRUE;
+
+  drupal_set_message(t('The user !name has been registered with the email !email.', array('!name' => $form_state['values']['name'],'!email' => $form_state['values']['mail'])));
+
+  $form_state['rebuild'] = TRUE;
+
+  ctools_include('ajax');
+  ctools_add_js('ajax-responder');
+  $commands[] = ctools_ajax_command_redirect($referer_page);
+  print ajax_render($commands);
+  exit;
+}
+
+/**
+ * Custom validation handler for the form login.
+ *
+ * @param $form
+ * @param $form_state
+ * @return bool
+ */
+function create_user_form_validate($form, &$form_state) {
+  $name = $form_state['values']['name'];
+  $email = $form_state['values']['mail'];
+  if(!valid_email_address($email)) {
+    form_set_error('mail', t('The email address appears to be invalid.'));
+  } else {
+    $user = user_load_by_mail($email);
+    if($user){
+      form_set_error('email', t('The email !email already exists.', array('!email' => $email)));
+    }
+  }
+  $user_exists = user_load_by_name($name);
+  if($user_exists){
+    form_set_error('name', t('The user !name already exists.', array('!name' => $name)));
+  } 
+
+  if(strlen($form_state['values']['name']) < 3 || strlen($form_state['values']['name']) > 20){
+    form_set_error('name', t('Invalid name'));
+  }
+  if(strlen($form_state['values']['name']) < 3 || strlen($form_state['values']['name']) > 20){
+    form_set_error('password', t('Invalid password'));
+  }
+}
+
+/**
+ * [create_user_submit_callback description]
+ * @param  [type] $form   [description]
+ * @param  [type] &$state [description]
+ * @return [type]         [description]
+ */
+function create_user_submit_callback($form, &$state) {
+  return '<div id="create-user-error"></div>';
+}
+
+/**
+ * [recipient_management_details description]
+ * @param  [type] $form         [description]
+ * @param  [type] &$form_state  [description]
+ * @param  [type] $recipient_id [description]
+ * @return [type]               [description]
+ */
+function recipient_management_details($form, &$form_state, $recipient_id) { 
+  $recipient_query = db_select('YGS_Recipients_Ranks', 't');
+  $recipient_query->join('YGS_Recipients_Info', 'n', 'n.Recipient_ID = t.Recipient_ID');
+  $result = $recipient_query
+  ->fields('t', array())
+  ->fields('n', array( 'CITY', 'STATE','STREET', 'PHONE', 'URL', 'PRINCIPAL_PREF_TITLE', 'PRINCIPAL_FIRST', 'PRINCIPAL_LAST', 'PRINCIPAL_PREF_TITLE_PHONE', 'PRINCIPAL_EMAIL', 'Notes'))
+  ->condition('n.Recipient_ID', $recipient_id)
+  ->execute()->fetchAssoc();
+
+  $form['#attributes'] = array('autocomplete' => 'off');
+  $form['form']['recipient_details_form']['message'] = [
+    '#markup' => '<div id="recipient-details-form-message"></div>',
+  ];
+
+  $form['form']['recipient_details_form']['title'] = array(
+    '#markup' => '<h2>Details</h2>',
+  );
+
+  $form['form']['recipient_details_form']['SCHOOL'] = array(
+    '#maxlength' => USERNAME_MAX_LENGTH,
+    '#size' => 25,
+    '#required' => FALSE,
+    '#theme_wrappers' => array(),
+    '#prefix' => ' <div class="recipient-details-field" ><label for="">'.t('SCHOOL:').'</label><span  class="recipient-form-data" style="display:none;">',
+    '#suffix' => '</span> <span class="recipient-form-value">'.htmlspecialchars($result['SCHOOL']).'</span></div>',
+    '#value' => $result['SCHOOL'],
+  );
+
+  $form['form']['recipient_details_form']['CITY'] = array(
+    '#maxlength' => USERNAME_MAX_LENGTH,
+    '#size' => 25,
+    '#required' => FALSE,
+    '#theme_wrappers' => array(),
+    '#prefix' => ' <div class="recipient-details-field"><label for="">'.t('CITY:').'</label><span  class="recipient-form-data" style="display:none;">',
+    '#suffix' => '</span><span class="recipient-form-value">'.htmlspecialchars($result['CITY']).'</span></div>',
+    '#value' => $result['CITY']
+  );
+
+  $form['form']['recipient_details_form']['STATE'] = array(
+    '#maxlength' => USERNAME_MAX_LENGTH,
+    '#size' => 25,
+    '#required' => FALSE,
+    '#theme_wrappers' => array(),
+    '#prefix' => ' <div class="recipient-details-field"><label for="">'.t('STATE:').'</label><span  class="recipient-form-data" style="display:none;">',
+    '#suffix' => '</span><span class="recipient-form-value">'.htmlspecialchars($result['STATE']).'</span></div>',
+    '#value' => $result['STATE']
+  );
+
+  $form['form']['recipient_details_form']['STREET'] = array(
+    '#maxlength' => USERNAME_MAX_LENGTH,
+    '#size' => 25,
+    '#required' => FALSE,
+    '#theme_wrappers' => array(),
+    '#prefix' => ' <div class="recipient-details-field"><label for="">'.t('STREET:').'</label><span  class="recipient-form-data" style="display:none;">',
+    '#suffix' => '</span><span class="recipient-form-value">'.htmlspecialchars($result['STREET']).'</span></div>',
+    '#value' => $result['STREET']
+  );
+
+  $form['form']['recipient_details_form']['PHONE'] = array(
+    '#maxlength' => USERNAME_MAX_LENGTH,
+    '#size' => 25,
+    '#required' => FALSE,
+    '#theme_wrappers' => array(),
+    '#prefix' => ' <div class="recipient-details-field"><label for="">'.t('PHONE:').'</label><span  class="recipient-form-data" style="display:none;">',
+    '#suffix' => '</span><span class="recipient-form-value">'.htmlspecialchars($result['PHONE']).'</span></div>',
+    '#value' => $result['PHONE']
+  );  
+  $form['form']['recipient_details_form']['PRINCIPAL_FIRST'] = array(
+    '#maxlength' => USERNAME_MAX_LENGTH,
+    '#size' => 25,
+    '#required' => FALSE,
+    '#theme_wrappers' => array(),
+    '#prefix' => ' <div class="recipient-details-field"><label for="">'.t('PRINCIPAL_FIRST:').'</label><span  class="recipient-form-data" style="display:none;">',
+    '#suffix' => '</span><span class="recipient-form-value">'.htmlspecialchars($result['PRINCIPAL_FIRST']).'</span></div>',
+    '#value' => $result['PRINCIPAL_FIRST']
+  );
+  $form['form']['recipient_details_form']['PRINCIPAL_LAST'] = array(
+    '#maxlength' => USERNAME_MAX_LENGTH,
+    '#size' => 25,
+    '#required' => FALSE,
+    '#theme_wrappers' => array(),
+    '#prefix' => ' <div class="recipient-details-field"><label for="">'.t('PRINCIPAL_LAST:').'</label><span  class="recipient-form-data" style="display:none;">',
+    '#suffix' => '</span><span class="recipient-form-value">'.htmlspecialchars($result['PRINCIPAL_LAST']).'</span></div>',
+    '#value' => $result['PRINCIPAL_LAST']
+  );
+
+  $form['form']['recipient_details_form']['URL'] = array(
+    '#maxlength' => USERNAME_MAX_LENGTH,
+    '#size' => 25,
+    '#required' => FALSE,
+    '#theme_wrappers' => array(),
+    '#prefix' => ' <div class="recipient-details-field"><label for="">'.t('URL:').'</label><span  class="recipient-form-data" style="display:none;">',
+    '#suffix' => '</span><span class="recipient-form-value">'.htmlspecialchars($result['URL']).'</span></div>',
+    '#value' => $result['URL']
+  );
+  $form['form']['recipient_details_form']['PRINCIPAL_PREF_TITLE'] = array(
+    '#maxlength' => USERNAME_MAX_LENGTH,
+    '#size' => 25,
+    '#required' => FALSE,
+    '#theme_wrappers' => array(),
+    '#prefix' => ' <div class="recipient-details-field"><label for="">'.t('PRINCIPAL PREF TITLE:').'</label><span  class="recipient-form-data" style="display:none;">',
+    '#suffix' => '</span><span class="recipient-form-value">'.htmlspecialchars($result['PRINCIPAL_PREF_TITLE']).'</span></div>',
+    '#value' => $result['PRINCIPAL_PREF_TITLE']
+  );
+  $form['form']['recipient_details_form']['PRINCIPAL_PREF_TITLE_PHONE'] = array(
+    '#maxlength' => USERNAME_MAX_LENGTH,
+    '#size' => 25,
+    '#required' => FALSE,
+    '#theme_wrappers' => array(),
+    '#prefix' => ' <div class="recipient-details-field"><label for="">'.t('PRINCIPAL PREF TITLE PHONE:').'</label><span  class="recipient-form-data" style="display:none;">',
+    '#suffix' => '</span><span class="recipient-form-value">'.htmlspecialchars($result['PRINCIPAL_PREF_TITLE_PHONE']).'</span></div>',
+    '#value' => $result['PRINCIPAL_PREF_TITLE_PHONE']
+  );
+
+  $form['form']['recipient_details_form']['PRINCIPAL_EMAIL'] = array(
+    '#maxlength' => USERNAME_MAX_LENGTH,
+    '#size' => 25,
+    '#required' => FALSE,
+    '#theme_wrappers' => array(),
+    '#prefix' => ' <div class="recipient-details-field"><label for="">'.t('PRINCIPAL EMAIL:').'</label><span  class="recipient-form-data" style="display:none;">',
+    '#suffix' => '</span><span class="recipient-form-value">'.htmlspecialchars($result['PRINCIPAL_EMAIL']).'</span></div>',
+    '#value' => $result['PRINCIPAL_EMAIL']
+  );
+  $form['form']['recipient_details_form']['Notes'] = array(
+    '#maxlength' => USERNAME_MAX_LENGTH,
+    '#size' => 25,
+    '#required' => FALSE,
+    '#theme_wrappers' => array(),
+    '#prefix' => ' <div class="recipient-details-field"><label for="">'.t('Notes:').'</label><span  class="recipient-form-data" style="display:none;">',
+    '#suffix' => '</span><span class="recipient-form-value">'.htmlspecialchars($result['Notes']).'</span></div>',
+    '#value' => $result['Notes'],
+    '#cols' => 7,
+    '#rows' => 3,
+    '#resizable' => FALSE,
+  );
+
+  $form['form']['recipient_details_form']['STEM_org_ID'] = array(
+    '#maxlength' => USERNAME_MAX_LENGTH,
+    '#size' => 25,
+    '#required' => FALSE,
+    '#theme_wrappers' => array(),
+    '#prefix' => ' <div class="recipient-details-field"><label for="">'.t('STEM.org ID:').'</label><span  class="recipient-form-data" style="display:none;">',
+    '#suffix' => '</span><span class="recipient-form-value">'.htmlspecialchars($result['STEM_org_ID']).'</span></div>',
+    '#value' => $result['STEM_org_ID']
+  );
+
+  $current_user_info = current_user_info();
+  if($current_user_info['has_access']) {
+    $form['form']['recipient_details_form']['SCHOOL']['#type'] = 'textfield';
+    $form['form']['recipient_details_form']['CITY']['#type'] = 'textfield';
+    $form['form']['recipient_details_form']['STATE']['#type'] = 'textfield';
+    $form['form']['recipient_details_form']['STREET']['#type'] = 'textfield';
+    $form['form']['recipient_details_form']['PHONE']['#type'] = 'textfield';
+    $form['form']['recipient_details_form']['PRINCIPAL_FIRST']['#type'] = 'textfield';
+    $form['form']['recipient_details_form']['PRINCIPAL_LAST']['#type'] = 'textfield';
+    $form['form']['recipient_details_form']['URL']['#type'] = 'textfield';
+    $form['form']['recipient_details_form']['PRINCIPAL_PREF_TITLE']['#type'] = 'textfield';
+    $form['form']['recipient_details_form']['PRINCIPAL_PREF_TITLE_PHONE']['#type'] = 'textfield';
+    $form['form']['recipient_details_form']['PRINCIPAL_EMAIL']['#type'] = 'textfield';
+    $form['form']['recipient_details_form']['Notes']['#type'] = 'textarea';
+    $form['form']['recipient_details_form']['STEM_org_ID']['#type'] = 'textfield';
+
+    $form['form']['recipient_details_form']['actions'] = [
+      '#type'       => 'actions',
+      '#theme_wrappers' => array(),
+      '#prefix' => ' <div class="filter-actions"> ',
+      '#suffix' => '</div>'
+    ];
+
+    $form['form']['recipient_details_form']['actions']['edit'] = [
+      '#markup' => '<input type="button" class="form-submit" value="Edit" id="edit-recipient-details">',
+    ];
+    $form['form']['recipient_details_form']['actions']['submit'] = [
+      '#type'  => 'submit',
+      '#value' => t('Update'),
+      '#ajax'  => [
+        'callback' => 'recipient_management_details_form_submit',
+        'wrapper'  => 'recipient-details-form-message',
+        'effect'   => 'fade',
+      ],
+      '#prefix' => '<span class="recipient-form-submit" style="display:none;">',
+      '#suffix' => '</span>',
+    ];
+  }
+
+  $current_url = url(current_path(), array('absolute' => TRUE));
+  $form['#recipient_id'] = $recipient_id;
+  $form['#current_url'] = $current_url;
+
+  return $form;
+}
+
+/**
+ * [recipient_management_details_submit description]
+ * @param  [type] $form        [description]
+ * @param  [type] &$form_state [description]
+ * @return [type]              [description]
+ */
+function recipient_management_details_submit($form, &$form_state){
+  $recipient_id = $form['#recipient_id'];
+  $current_url = $form['#current_url'];
+  $YGS_Recipients_Info['STEM_org_ID'] = $form_state['input']['STEM_org_ID'];
+  $YGS_Recipients_Info['SCHOOL'] = $form_state['input']['SCHOOL'];
+  $YGS_Recipients_Info['CITY'] = $form_state['input']['CITY'];
+  $YGS_Recipients_Info['STATE'] = $form_state['input']['STATE'];
+  $YGS_Recipients_Info['STREET'] = $form_state['input']['STREET'];
+  $YGS_Recipients_Info['PHONE'] = $form_state['input']['PHONE'];
+  $YGS_Recipients_Info['URL'] = $form_state['input']['URL'];
+  $YGS_Recipients_Info['PRINCIPAL_FIRST'] = $form_state['input']['PRINCIPAL_FIRST'];
+  $YGS_Recipients_Info['PRINCIPAL_LAST'] = $form_state['input']['PRINCIPAL_LAST'];
+  $YGS_Recipients_Info['PRINCIPAL_PREF_TITLE'] = $form_state['input']['PRINCIPAL_PREF_TITLE'];
+  $YGS_Recipients_Info['PRINCIPAL_PREF_TITLE_PHONE'] = $form_state['input']['PRINCIPAL_PREF_TITLE_PHONE'];
+  $YGS_Recipients_Info['PRINCIPAL_EMAIL'] = $form_state['input']['PRINCIPAL_EMAIL'];
+  $YGS_Recipients_Info['Notes'] = $form_state['input']['Notes'];
+
+  $num_updated = db_update('YGS_Recipients_Info')
+  ->fields($YGS_Recipients_Info)
+  ->condition('Recipient_ID', $recipient_id)
+  ->execute();
+
+  $YGS_Recipients_Ranks['STEM_org_ID'] = $form_state['input']['STEM_org_ID'];
+  $YGS_Recipients_Ranks['SCHOOL'] = $form_state['input']['SCHOOL'];
+  $YGS_Recipients_Ranks['CITY'] = $form_state['input']['CITY'];
+  $YGS_Recipients_Ranks['STATE'] = $form_state['input']['STATE'];
+  $num_updated1 = db_update('YGS_Recipients_Ranks')
+  ->fields($YGS_Recipients_Ranks)
+  ->condition('Recipient_ID', $recipient_id)
+  ->execute();
+
+  drupal_set_message(t('Recipient details has been updated successfully.',
+    $YGS_Recipients_Ranks));
+
+  ctools_include('ajax');
+  ctools_add_js('ajax-responder');
+  $commands[] = ctools_ajax_command_redirect($current_url);
+  print ajax_render($commands);
+  exit;
+}
+
+
+/**
+ * Custom validation handler for the form login.
+ *
+ * @param $form
+ * @param $form_state
+ * @return bool
+ */
+function recipient_management_details_validate($form, &$form_state) {
+  $current_user_info = current_user_info();
+  if($current_user_info['has_access']) { 
+    $email = $form_state['input']['PRINCIPAL_EMAIL'];
+    if(!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+      form_set_error('PRINCIPAL_EMAIL', t('The email address appears to be invalid.'));
+    } 
+    // $phone = $form_state['input']['PHONE'];
+    // if(!is_int($phone)) {
+    //   form_set_error('PHONE', t('The phone number appears to be invalid.'));
+    // } 
+  } else {
+    form_set_error('permission_denied', t('Permission Denied: The current user does not have permission to do this action.'));
+  }
+}
+
+function recipient_management_details_form_submit($form, &$state) {
+  return '<div id="recipient-details-form-message"></div>';
+}
+
+/**
+ * Implements hook_permission().
+ */
+// function recipient_management_permission() {
+//  return array(
+//   'administer recipient_management_permission' => array(
+//     'title' => t('Administer permission for your module'),
+//     'description' => t('Some description that would appear on the permission page..'),
+//   ),
+// );
+// }
+
+/**
+ * Implements hook_permission().
+ */
+function recipient_management_permission() {
+ return array(
+  // 'administer recipient_management_page' => array(
+  //   'title' => t('Access recipient management page.'),
+  //   'description' => t('Perform administration tasks for login/register with popup modal.'),
+  // ),
+  'administer recipient_details_page' => array(
+    'title' => t('Access recipient details page'),
+    'description' => t('View the recipient details page.'),
+  ),
+);
+}
+
+/**
+ * Implements hook_block_info().
+ */
+function recipient_management_block_info() {
+  $blocks = array();
+  $blocks['recipient_details_block'] = array(
+    'info' => t('Recipient Details Block'),
+    'cache' => DRUPAL_NO_CACHE
+  );
+  return $blocks;
+}
+
+/**
+ * View the series, teams and captains table
+ * @param  string $delta 
+ * @return [type]        
+ */
+function recipient_management_block_view($delta = '') {
+  $block = array();
+  /* The $delta parameter tells us which block is being requested. */
+  switch ($delta) {
+    case 'recipient_details_block':
+    $current_user_info = current_user_info();
+    if(!in_array('administrator', $current_user_info['user_roles'])) {
+      $recipients_users_query = db_select('YGS_Recipients_Users', 'v');
+      $Recipient_ID = $recipients_users_query
+      ->fields('v',array('Recipient_ID'))
+      ->condition('v.USERID', $current_user_info['uid']);
+      $recipient_id = $Recipient_ID->execute()->fetchField();
+      if($recipient_id != '') {
+        $html = recipient_details_callback($recipient_id);
+        $block['subject'] = t('Recipient Info');
+        $block['content'] = $html;
+      }
+    }
+    break;
+  }
+  return $block;
+}
+
+/**
+ * Get the user information 
+ * data of the logged in user
+ * 
+ * @return [type] Array
+ */
+function current_user_info() {
+  global $user;
+
+  $admin_roles = array("administrator","sales_admin");
+  $user_info = array();
+  $user_roles = $user->roles;
+  $user_info['user_roles'] = $user_roles;
+  if(isset($user->roles) && count(array_intersect($admin_roles, $user_roles)) > 0) {
+    // access to edit recipient details info
+    $user_info['has_access'] = true;
+    $user_info['uid'] = $user->uid;
+  } else {
+    $user_info['has_access'] = false;
+    $user_info['uid'] = $user->uid;
+  }
+  return $user_info;
+}

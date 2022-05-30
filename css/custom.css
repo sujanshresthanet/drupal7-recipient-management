@@ -1,0 +1,34 @@
+#custom_login_form, #recipient_management_form  {
+	float: left;
+	width: 50%;
+}
+.recipient-details-field {
+    display: table;
+    width: 100%;
+    padding: 2px;
+}
+.recipient-details-field label {
+    display: table-cell;
+    width: 1px;
+    white-space: nowrap
+}
+label.recipient-details-label {
+    width: 215px;
+}
+.recipient-details-field span {
+    display: table-cell;
+    padding: 0 0 0 5px
+}
+.recipient-form-data textarea {
+    width:15em;
+}
+
+@media screen and (max-width: 400px) {
+	#custom_login_form, #recipient_management_form  { 
+		float: none;
+		margin-right:0;
+		width:auto;
+		border:0;
+		border-bottom:2px solid #000;    
+	}
+}

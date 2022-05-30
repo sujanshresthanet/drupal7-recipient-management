@@ -1,0 +1,11 @@
+name = Recipient Management
+description = Provides the user registration and recipient management functionality
+package = Newsweek STEM
+version = VERSION
+core = 7.x
+dependencies[]=ctools
+
+; Information added by Drupal.org packaging script on 2022-05-30
+version = "7.65"
+project = "drupal"
+datestamp = "1653921595"
